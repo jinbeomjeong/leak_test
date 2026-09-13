@@ -38,13 +38,16 @@ def time_warp(series, sigma=0.2, knots=4):
 
 
 def create_seq_dataset_multiple_input_single_output(data: np.array, seq_len=1, pred_distance=0, target_idx_pos=1):
+    # target_idx_pos 는 feature/target 을 가르는 열 인덱스이므로 음수일 수 없다.
+    # 기존에는 루프 안에서 target 만 조건부로 append 해 feature 와 개수가 어긋날 수 있었다.
+    if target_idx_pos < 0:
+        raise ValueError(f'target_idx_pos 는 0 이상이어야 합니다. (받은 값: {target_idx_pos})')
+
     feature, target = [], []
 
     for i in tqdm(range(data.shape[0] - pred_distance), desc='creating sequence dataset...'):
         if i+1 >= seq_len:
             feature.append(data[i+1-seq_len:i+1, 0:target_idx_pos])
-
-            if target_idx_pos >= 0:
-                target.append(data[i + pred_distance, target_idx_pos:])
+            target.append(data[i + pred_distance, target_idx_pos:])
 
     return np.array(feature), np.array(target)  # data shape(n_samples, seq_len, n_features), seq len=[t-29, t-28, t-27,..., t0]

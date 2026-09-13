@@ -65,6 +65,7 @@ class PositionalEncoding(keras.layers.Layer):
         return config
 
 
+@keras.saving.register_keras_serializable()
 class InceptionBlock1D(keras.layers.Layer):
     def __init__(self, output_dim_1x1=64, hidden_dim_3x3=96, output_dim_3x3=128, hidden_dim_5x5=16, output_dim_5x5=32,
                  hidden_dim_7x7=24, output_dim_7x7=32, output_dim_max_pool=32, dropout_rate=0.2, **kwargs):
@@ -82,7 +83,7 @@ class InceptionBlock1D(keras.layers.Layer):
         self.conv_1x1 = conv_1d_1x1(output_dim=self.output_dim_1x1, dropout_rate=self.dropout_rate)
         self.conv_3x3 = conv_1d_1x3(hidden_dim=self.hidden_dim_3x3, output_dim=self.output_dim_3x3, dropout_rate=self.dropout_rate)
         self.conv_5x5 = conv_1d_1x5(hidden_dim=self.hidden_dim_5x5, output_dim=self.output_dim_5x5, dropout_rate=self.dropout_rate)
-        self.conv_7x7 = conv_1d_1x7(hidden_dim=self.hidden_dim_7x7, output_dim=self.output_dim_7x7)
+        self.conv_7x7 = conv_1d_1x7(hidden_dim=self.hidden_dim_7x7, output_dim=self.output_dim_7x7, dropout_rate=self.dropout_rate)
         self.max_pool = max_pool_1d_to_1x1(output_dim=self.output_dim_max_pool, dropout_rate=self.dropout_rate)
 
     def call(self, inputs_layer):
@@ -98,11 +99,13 @@ class InceptionBlock1D(keras.layers.Layer):
         config = super().get_config()
         config.update({'output_dim_1x1': self.output_dim_1x1, 'hidden_dim_3x3': self.hidden_dim_3x3, 'output_dim_3x3': self.output_dim_3x3,
                        'hidden_dim_5x5': self.hidden_dim_5x5, 'output_dim_5x5': self.output_dim_5x5,
+                       'hidden_dim_7x7': self.hidden_dim_7x7, 'output_dim_7x7': self.output_dim_7x7,
                        'output_dim_max_pool': self.output_dim_max_pool, 'dropout_rate': self.dropout_rate})
 
         return config
 
 
+@keras.saving.register_keras_serializable()
 class TransformerEncoderBlock(keras.layers.Layer):
     def __init__(self, head_size, num_heads, ff_dim, dropout_rate=0.1, **kwargs):
         super().__init__(**kwargs)
@@ -116,9 +119,16 @@ class TransformerEncoderBlock(keras.layers.Layer):
         self.norm1 = keras.layers.LayerNormalization(epsilon=1e-6)
 
         self.ffn_dense1 = keras.layers.Dense(ff_dim, activation="gelu")
-        self.ffn_dense2 = keras.layers.Dense(head_size, activation="linear")
+        # ffn_dense2 는 잔차 연결을 위해 입력과 같은 차원으로 되돌려야 하므로 build() 에서 생성한다.
+        self.ffn_dense2 = None
         self.dropout2 = keras.layers.Dropout(dropout_rate)
         self.norm2 = keras.layers.LayerNormalization(epsilon=1e-6)
+
+    def build(self, input_shape):
+        # head_size 는 어텐션 헤드 하나의 key 차원일 뿐 모델 차원이 아니다.
+        # FFN 출력은 입력 feature 차원과 같아야 norm_out1 + ffn_output 잔차 덧셈이 성립한다.
+        self.ffn_dense2 = keras.layers.Dense(input_shape[-1], activation="linear")
+        super().build(input_shape)
 
     def call(self, inputs):
         attention_output = self.attention(query=inputs, value=inputs, key=inputs)
@@ -143,6 +153,7 @@ class TransformerEncoderBlock(keras.layers.Layer):
 
         return config
 
+@keras.saving.register_keras_serializable()
 class InceptionBlock2D(keras.layers.Layer):
     def __init__(self, output_dim_1x1=64, hidden_dim_3x3=96, output_dim_3x3=128, hidden_dim_5x5=16, output_dim_5x5=32, output_dim_max_pool=32,
                  dropout_rate=0.2, **kwargs):

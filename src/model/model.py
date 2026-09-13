@@ -3,7 +3,7 @@ os.environ["KERAS_BACKEND"] = "jax"
 
 import keras
 #from sub_layer import fft_for_period
-from src.model.layer import InceptionBlock2D, DecompositionLayer, gelu_approximate
+from src.model.layer import DecompositionLayer, gelu_approximate
 from src.model.sub_layer import count_divisions_by_two
 
 
@@ -138,10 +138,14 @@ def time_mixer_block(input_layer, pred_len=1, go_backward=False, dropout_rate=0.
 
     for seasonal_mix_layer, trend_mix_layer in zip(seasonal_mix_list, trend_mix_list):
         mix_output = seasonal_mix_layer+trend_mix_layer
+        # 비선형성은 은닉층에 둔다. 위쪽 seasonal/trend 믹싱 루프와 같은 Dense→LN→Dropout→Activation 순서.
         mix_output = keras.layers.Dense(units=hidden_units, activation='linear')(mix_output)
         mix_output = keras.layers.LayerNormalization()(mix_output)
         mix_output = keras.layers.Dropout(dropout_rate)(mix_output)
-        mix_output = keras.layers.Dense(units=pred_len, activation=gelu_approximate)(mix_output) #gelu
+        mix_output = keras.layers.Activation(gelu_approximate)(mix_output)
+        # 예측을 내보내는 투영층은 linear 여야 한다. gelu 를 쓰면 출력이 -0.17 아래로 내려갈 수 없어
+        # 음수 쪽 누설 유량(타깃 범위 -7.5 ~ +7.2)을 표현하지 못한다.
+        mix_output = keras.layers.Dense(units=pred_len, activation='linear')(mix_output)
         mix_output_list.append(mix_output)
 
     return keras.layers.add(mix_output_list)
