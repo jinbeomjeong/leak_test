@@ -141,12 +141,11 @@ def build_multiscale_linear_model(input_shape, scales=(3, 5, 10, 15, 20, 25, 30)
     구조는 세 단계가 전부이고 그 밖의 레이어는 없습니다.
 
         1. 입력 창에서 마지막 3, 5, 10, 15, 20, 25, 30 스텝의 평균을 구한다
-        2. 평균마다 독립적인 a*x + b 를 적용한다
-        3. 전부 더해 예측값 하나를 낸다
+        2. 평균마다 기울기 a 를 곱해 전부 더한다
+        3. 절편 b 를 더해 예측값 하나를 낸다
 
-    학습 파라미터는 a 7개와 b 7개로 14개입니다. 다만 b 들은 마지막에 모두 더해지므로
-    서로 구별되지 않아, 이 모델이 표현할 수 있는 함수의 자유도는 8개(a 7 + 절편 1)입니다.
-    b 를 스케일마다 따로 두는 것은 학습된 값을 스케일별로 읽어 보기 위해서입니다.
+    학습 파라미터는 스케일별 기울기 a 7개와 절편 b 1개로 모두 8개입니다.
+    절편을 스케일마다 두면 마지막 합산에서 서로 구별되지 않으므로 하나만 둡니다.
 
     Args:
         input_shape: (seq_len, n_features) 형태. scales 의 최댓값이 seq_len 이하여야 합니다.
@@ -158,7 +157,6 @@ def build_multiscale_linear_model(input_shape, scales=(3, 5, 10, 15, 20, 25, 30)
 
     y = MultiScaleMean(scales=scales)(input_layer)
     y = ScaleWiseAffine(l2=l2)(y)
-    y = keras.ops.sum(y, axis=1, keepdims=True)
 
     model = keras.models.Model(inputs=input_layer, outputs=y)
 

@@ -256,19 +256,26 @@ class MultiScaleMean(keras.layers.Layer):
 @keras.saving.register_keras_serializable()
 class ScaleWiseAffine(keras.layers.Layer):
     """
-    입력 원소마다 독립적인 a*x + b 를 적용합니다.
+    입력 원소마다 기울기 a 를 하나씩 곱해 더하고, 마지막에 절편 b 를 한 번 더합니다.
 
-    MultiScaleMean 뒤에 붙이면 스케일마다 기울기 a 와 절편 b 를 따로 학습합니다.
-    학습된 a, b 를 그대로 읽어 각 스케일이 예측에 얼마나 기여하는지 볼 수 있습니다.
+        y = sum(a_s * x_s) + b
+
+    MultiScaleMean 뒤에 붙이면 스케일마다 기울기를 따로 학습합니다. 학습된 a 를 그대로
+    읽어 각 스케일이 예측에 얼마나 기여하는지 볼 수 있습니다.
+
+    파라미터는 입력 원소 수 n 에 대해 a n 개와 b 1 개로 n+1 개입니다.
+    절편을 스케일마다 두면 마지막에 전부 더해지면서 서로 구별되지 않으므로 하나만 둡니다.
 
     a 의 초기값은 1/n 입니다. 이렇게 두면 학습 시작 시점의 출력이 여러 평균의 평균,
     즉 "현재 수준을 그대로 예측"이 되어 물리적으로 타당한 출발점이 됩니다.
-    a 를 1 로 두면 초기 출력이 스케일 개수배로 커져 학습이 크게 흔들립니다.
+    a 를 1 로 두면 초기 출력이 입력 개수배로 커져 학습이 크게 흔들립니다.
 
     Args:
         l2 (float): a 에 걸 L2 벌점. 0 이면 걸지 않습니다(기본값).
             중첩된 이동평균은 서로 상관이 매우 높아(이 데이터에서 최소 0.9947,
             조건수 4139) 벌점 없이 학습하면 계수가 불안정해집니다.
+
+    입력 (batch, n) → 출력 (batch, 1)
     """
     def __init__(self, l2=0.0, **kwargs):
         super().__init__(**kwargs)
@@ -282,14 +289,14 @@ class ScaleWiseAffine(keras.layers.Layer):
         self.a = self.add_weight(name='a', shape=(n_units,),
                                  initializer=keras.initializers.Constant(1.0 / n_units),
                                  regularizer=regularizer, trainable=True)
-        self.b = self.add_weight(name='b', shape=(n_units,), initializer='zeros', trainable=True)
+        self.b = self.add_weight(name='b', shape=(1,), initializer='zeros', trainable=True)
         super().build(input_shape)
 
     def call(self, inputs):
-        return inputs * self.a + self.b
+        return keras.ops.sum(inputs * self.a, axis=-1, keepdims=True) + self.b
 
     def compute_output_shape(self, input_shape):
-        return input_shape
+        return (input_shape[0], 1)
 
     def get_config(self):
         config = super().get_config()
