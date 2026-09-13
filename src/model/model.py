@@ -79,7 +79,20 @@ from src.model.sub_layer import count_linear_scales
 #         return config
 
 
-def time_mixer_block(input_layer, pred_len=1, go_backward=False, dropout_rate=0.2):
+def time_mixer_block(input_layer, pred_len=1, hidden_units=128, go_backward=False, dropout_rate=0.2):
+    """
+    시계열을 여러 배율로 축소한 뒤, 계절성(seasonal)과 추세(trend)로 나누어 섞는 블록.
+
+    Args:
+        input_layer: (batch, seq_len) 형태의 2D 텐서.
+        pred_len (int): 각 스케일 분기가 내보낼 예측 길이.
+        hidden_units (int): 스케일마다 붙는 예측 헤드 MLP 의 은닉층 크기.
+            스케일 개수만큼 곱해져 모델 파라미터의 대부분을 차지하므로,
+            데이터가 적을 때 가장 먼저 줄여볼 값이다.
+        go_backward (bool): 입력 시퀀스를 뒤집어서 처리할지 여부.
+            현재 사용되지 않으며 출력을 되돌리지 않으므로 검증된 경로가 아니다.
+        dropout_rate (float): 드롭아웃 비율.
+    """
     input_raw = keras.ops.reverse(input_layer, axes=1) if go_backward else input_layer
     input_raw = keras.ops.expand_dims(input_raw, axis=2)
 
@@ -135,7 +148,6 @@ def time_mixer_block(input_layer, pred_len=1, go_backward=False, dropout_rate=0.
     trend_mix_list.reverse()
 
     mix_output_list = []
-    hidden_units = 128
 
     for seasonal_mix_layer, trend_mix_layer in zip(seasonal_mix_list, trend_mix_list):
         mix_output = seasonal_mix_layer+trend_mix_layer
