@@ -8,7 +8,8 @@ from src.model.model import time_mixer_block
 
 
 def build_reg_model(input_shape, d_dims=64, dropout_rate=0.2, learning_rate=0.001,
-                    mixer_hidden_units=128, feature_pooling='flatten', mixer_input='sequence'):
+                    mixer_hidden_units=128, feature_pooling='flatten', mixer_input='sequence',
+                    output_head='direct', horizon=None):
     """
     누설 유량 예측용 회귀 모델을 만든다.
 
@@ -35,11 +36,29 @@ def build_reg_model(input_shape, d_dims=64, dropout_rate=0.2, learning_rate=0.00
             정확도는 두 방식이 시드 편차 안에서 동률이지만, 'sequence' 가 파라미터가
             26% 적고 블록의 의도에 맞아 기본값이다. 다만 스케일 개수는 입력 길이를 따르므로
             seq_len=30 에서는 2개로 줄어든다 ('projection' 은 pred_len=90 기준 6개).
+        output_head: 모델이 무엇을 출력할지.
+            'direct'     - h=horizon 한 점의 값을 그대로 출력한다 (스칼라 1개).
+            'trajectory' - h=0..horizon 을 각각 자유롭게 출력한다 (horizon+1 개).
+                           물리 파라미터화 없이 미래 구간 전체를 학습하는 대조군.
+            'linear'     - level 과 slope 두 개만 출력하고 pred(h) = level + slope*h 로
+                           미래 구간을 만든다. TEST 구간 신호가 거의 직선이라
+                           (미래 100스텝을 직선이 R2 0.824 로 설명, 지수곡선은 0.827 로 차이 없음)
+                           2개 숫자로 미래 전체를 설명하도록 강하게 제약한다.
+            'trajectory' 와 'linear' 는 타깃이 (n_samples, horizon+1) 이어야 하므로
+            create_seq_dataset_trajectory 로 만든 데이터가 필요하다.
+        horizon (int): 예측할 미래 길이(스텝). output_head 가 'direct' 가 아니면 필수.
     """
     if feature_pooling not in ('flatten', 'last'):
         raise ValueError(f"feature_pooling 은 'flatten' 또는 'last' 여야 합니다. (받은 값: {feature_pooling})")
     if mixer_input not in ('sequence', 'projection'):
         raise ValueError(f"mixer_input 은 'sequence' 또는 'projection' 이어야 합니다. (받은 값: {mixer_input})")
+    if output_head not in ('direct', 'trajectory', 'linear'):
+        raise ValueError(f"output_head 는 'direct', 'trajectory', 'linear' 중 하나여야 합니다. "
+                         f"(받은 값: {output_head})")
+    if output_head != 'direct' and horizon is None:
+        raise ValueError(f"output_head='{output_head}' 에는 horizon 을 지정해야 합니다.")
+    if output_head == 'linear' and (horizon is None or horizon < 1):
+        raise ValueError(f"output_head='linear' 에는 horizon 이 1 이상이어야 합니다. (받은 값: {horizon})")
     if mixer_input == 'sequence' and input_shape[-1] != 1:
         raise ValueError(f"mixer_input='sequence' 는 단변량 입력(n_features=1)만 지원합니다. "
                          f"(받은 input_shape: {input_shape})")
@@ -86,7 +105,24 @@ def build_reg_model(input_shape, d_dims=64, dropout_rate=0.2, learning_rate=0.00
 
     y = FeatureWiseScalingLayer()(y)
 
-    y = keras.layers.Dense(units=1, activation='linear')(y)
+    if output_head == 'linear':
+        # 미래 구간을 직선 하나로 파라미터화한다. 자유도가 2개뿐이라
+        # horizon+1 개 점을 모두 설명해야 하는 강한 제약이 걸린다.
+        #
+        # 시간축은 0..1 로 정규화해서 쓴다. h 를 0..horizon 그대로 곱하면
+        # 두 번째 출력에 최대 horizon(=100) 이 곱해져 출력이 100배로 증폭되고
+        # 기울기 쪽 손실 기울기도 그만큼 커져 학습이 불안정해진다.
+        # 정규화하면 두 출력이 모두 O(1) 이 된다:
+        #   level = h=0 에서의 값, change = horizon 동안의 총 변화량.
+        curve_params = keras.layers.Dense(units=2, activation='linear')(y)
+        level = curve_params[:, 0:1]
+        change = curve_params[:, 1:2]
+        steps = keras.ops.arange(horizon + 1, dtype='float32') / float(horizon)
+        y = level + change * steps
+    elif output_head == 'trajectory':
+        y = keras.layers.Dense(units=horizon + 1, activation='linear')(y)
+    else:
+        y = keras.layers.Dense(units=1, activation='linear')(y)
 
     model = keras.models.Model(inputs=input_layer, outputs=y)
 
