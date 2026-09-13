@@ -208,6 +208,97 @@ class DecompositionLayer(keras.layers.Layer):
 
 
 @keras.saving.register_keras_serializable()
+class MultiScaleMean(keras.layers.Layer):
+    """
+    입력 창에서 여러 길이의 이동평균을 하나씩 뽑아 벡터로 만듭니다.
+
+    스케일 s 에 대해 창의 "마지막 s 스텝" 평균을 구합니다. 스케일이 커질수록
+    더 오래된 구간까지 포함하므로, 짧은 평균과 긴 평균의 차이가 곧 추세 정보가 됩니다.
+    s 가 창 길이와 같으면 창 전체 평균입니다.
+
+    Args:
+        scales: 평균을 낼 길이들. 각 값은 1 이상 seq_len 이하여야 합니다.
+
+    입력 (batch, seq_len, n_features) → 출력 (batch, len(scales) * n_features)
+    """
+    def __init__(self, scales=(3, 5, 10, 15, 20, 25, 30), **kwargs):
+        super().__init__(**kwargs)
+        self.scales = tuple(int(s) for s in scales)
+
+        if len(self.scales) == 0:
+            raise ValueError('scales 는 비어 있을 수 없습니다.')
+        if any(s < 1 for s in self.scales):
+            raise ValueError(f'scales 의 모든 값은 1 이상이어야 합니다. (받은 값: {self.scales})')
+
+    def build(self, input_shape):
+        seq_len = input_shape[1]
+
+        if seq_len is not None and max(self.scales) > seq_len:
+            raise ValueError(f'scales 의 값은 입력 창 길이({seq_len}) 이하여야 합니다. '
+                             f'(받은 값: {self.scales})')
+        super().build(input_shape)
+
+    def call(self, inputs):
+        means = [keras.ops.mean(inputs[:, -s:, :], axis=1) for s in self.scales]
+
+        return keras.ops.concatenate(means, axis=1)
+
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], len(self.scales) * input_shape[-1])
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({'scales': list(self.scales)})
+
+        return config
+
+
+@keras.saving.register_keras_serializable()
+class ScaleWiseAffine(keras.layers.Layer):
+    """
+    입력 원소마다 독립적인 a*x + b 를 적용합니다.
+
+    MultiScaleMean 뒤에 붙이면 스케일마다 기울기 a 와 절편 b 를 따로 학습합니다.
+    학습된 a, b 를 그대로 읽어 각 스케일이 예측에 얼마나 기여하는지 볼 수 있습니다.
+
+    a 의 초기값은 1/n 입니다. 이렇게 두면 학습 시작 시점의 출력이 여러 평균의 평균,
+    즉 "현재 수준을 그대로 예측"이 되어 물리적으로 타당한 출발점이 됩니다.
+    a 를 1 로 두면 초기 출력이 스케일 개수배로 커져 학습이 크게 흔들립니다.
+
+    Args:
+        l2 (float): a 에 걸 L2 벌점. 0 이면 걸지 않습니다(기본값).
+            중첩된 이동평균은 서로 상관이 매우 높아(이 데이터에서 최소 0.9947,
+            조건수 4139) 벌점 없이 학습하면 계수가 불안정해집니다.
+    """
+    def __init__(self, l2=0.0, **kwargs):
+        super().__init__(**kwargs)
+        self.l2 = float(l2)
+        self.a = None
+        self.b = None
+
+    def build(self, input_shape):
+        n_units = input_shape[-1]
+        regularizer = keras.regularizers.L2(self.l2) if self.l2 > 0 else None
+        self.a = self.add_weight(name='a', shape=(n_units,),
+                                 initializer=keras.initializers.Constant(1.0 / n_units),
+                                 regularizer=regularizer, trainable=True)
+        self.b = self.add_weight(name='b', shape=(n_units,), initializer='zeros', trainable=True)
+        super().build(input_shape)
+
+    def call(self, inputs):
+        return inputs * self.a + self.b
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({'l2': self.l2})
+
+        return config
+
+
+@keras.saving.register_keras_serializable()
 class FeatureWiseScalingLayer(keras.layers.Layer):
     """
     특징(feature)마다 학습되는 스케일 값을 곱해 주는 레이어입니다.

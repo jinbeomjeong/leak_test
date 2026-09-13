@@ -3,7 +3,7 @@ os.environ["KERAS_BACKEND"] = "jax"
 
 import keras
 
-from src.model.layer import gelu_approximate, FeatureWiseScalingLayer
+from src.model.layer import gelu_approximate, FeatureWiseScalingLayer, MultiScaleMean, ScaleWiseAffine
 from src.model.model import time_mixer_block
 
 
@@ -123,6 +123,42 @@ def build_reg_model(input_shape, d_dims=64, dropout_rate=0.2, learning_rate=0.00
         y = keras.layers.Dense(units=horizon + 1, activation='linear')(y)
     else:
         y = keras.layers.Dense(units=1, activation='linear')(y)
+
+    model = keras.models.Model(inputs=input_layer, outputs=y)
+
+    optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
+
+    model.compile(optimizer=optimizer, loss=keras.losses.LogCosh(),
+                  metrics=['mean_absolute_error', 'mean_absolute_percentage_error'])
+
+    return model
+
+
+def build_multiscale_linear_model(input_shape, scales=(3, 5, 10, 15, 20, 25, 30), learning_rate=0.01, l2=0.0):
+    """
+    멀티스케일 이동평균만 쓰는 최소 모델.
+
+    구조는 세 단계가 전부이고 그 밖의 레이어는 없습니다.
+
+        1. 입력 창에서 마지막 3, 5, 10, 15, 20, 25, 30 스텝의 평균을 구한다
+        2. 평균마다 독립적인 a*x + b 를 적용한다
+        3. 전부 더해 예측값 하나를 낸다
+
+    학습 파라미터는 a 7개와 b 7개로 14개입니다. 다만 b 들은 마지막에 모두 더해지므로
+    서로 구별되지 않아, 이 모델이 표현할 수 있는 함수의 자유도는 8개(a 7 + 절편 1)입니다.
+    b 를 스케일마다 따로 두는 것은 학습된 값을 스케일별로 읽어 보기 위해서입니다.
+
+    Args:
+        input_shape: (seq_len, n_features) 형태. scales 의 최댓값이 seq_len 이하여야 합니다.
+        scales: 평균을 낼 길이들.
+        learning_rate (float): Adam 학습률. 파라미터가 적어 기본 모델보다 크게 잡습니다.
+        l2 (float): a 에 걸 L2 벌점. 0 이면 요청받은 구조 그대로 벌점 없이 학습합니다.
+    """
+    input_layer = keras.layers.Input(shape=input_shape)
+
+    y = MultiScaleMean(scales=scales)(input_layer)
+    y = ScaleWiseAffine(l2=l2)(y)
+    y = keras.ops.sum(y, axis=1, keepdims=True)
 
     model = keras.models.Model(inputs=input_layer, outputs=y)
 
