@@ -12,6 +12,7 @@ from src.model.sub_layer import conv_2d_1x1, conv_2d_1x3, conv_2d_1x5, max_pool_
 def gelu_approximate(x):
     return keras.ops.gelu(x, approximate=True)
 
+@keras.saving.register_keras_serializable()
 class PositionalEncoding(keras.layers.Layer):
     def __init__(self, position, d_model, **kwargs):
         """
@@ -47,14 +48,14 @@ class PositionalEncoding(keras.layers.Layer):
         angle_rads[:, 1::2] = np.cos(angle_rads[:, 1::2])
 
         pos_encoding = angle_rads[np.newaxis, ...]
-        return tf.cast(pos_encoding, dtype=tf.float32)
+        return keras.ops.cast(pos_encoding, dtype='float32')
 
     def call(self, inputs):
         """
         레이어의 정방향 계산을 수행합니다.
         입력 텐서에 포지셔널 인코딩을 더합니다.
         """
-        return inputs + self.pos_encoding[:, :tf.shape(inputs)[1], :]
+        return inputs + self.pos_encoding[:, :keras.ops.shape(inputs)[1], :]
 
     def get_config(self):
         config = super(PositionalEncoding, self).get_config()

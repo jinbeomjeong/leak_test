@@ -5,7 +5,6 @@ import keras
 
 from src.model.layer import gelu_approximate, FeatureWiseScalingLayer
 from src.model.model import time_mixer_block
-from src.model.miscellaneous import count_divisions_by_two
 
 
 def build_reg_model(input_shape, d_dims=64, dropout_rate=0.2, learning_rate=0.001):

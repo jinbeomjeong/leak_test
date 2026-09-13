@@ -6,20 +6,22 @@ import keras
 
 def count_divisions_by_two(num):
     """
-    주어진 숫자가 1 이하가 될 때까지 2로 나눈 횟수를 계산합니다.
+    주어진 숫자가 2 이하가 될 때까지 2로 나눈 횟수를 계산합니다.
+
+    time_mixer_block 에서 시계열을 몇 단계까지 축소(multi-scale)할 수 있는지 정하는 데 사용합니다.
 
     Args:
-        num (float or int): 1보다 큰 숫자.
+        num (float or int): 나눌 대상 숫자.
 
     Returns:
-        int: 2로 나눈 횟수.
+        int: 2로 나눈 횟수. 입력이 이미 2 이하이면 0.
     """
     if num <= 2:
-        return 0  # 입력값이 이미 1 이하이면 0을 반환
+        return 0  # 입력값이 이미 2 이하이면 더 나눌 수 없음
 
     count = 0  # 나눈 횟수를 저장할 변수
 
-    # 숫자가 1보다 큰 동안 계속 반복
+    # 숫자가 2보다 큰 동안 계속 반복
     while num > 2:
         num /= 2  # 숫자를 2로 나눔
         count += 1  # 횟수 1 증가
