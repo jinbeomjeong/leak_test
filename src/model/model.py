@@ -4,7 +4,7 @@ os.environ["KERAS_BACKEND"] = "jax"
 import keras
 #from sub_layer import fft_for_period
 from src.model.layer import DecompositionLayer, gelu_approximate
-from src.model.sub_layer import count_divisions_by_two
+from src.model.sub_layer import count_linear_scales
 
 
 # class TimesNetBlock(keras.layers.Layer):
@@ -85,9 +85,10 @@ def time_mixer_block(input_layer, pred_len=1, go_backward=False, dropout_rate=0.
 
     multi_scale_input_list = [input_raw]
 
-    for i in range(count_divisions_by_two(input_raw.shape[1])-1):
-        i = (i*2)+2
-        avg_layer = keras.layers.AveragePooling1D(pool_size=i, strides=i, padding='valid')(input_raw)
+    # pool_size 를 2, 4, 6, 8 ... 로 선형 증가시키고, 개수도 같은 선형 규칙으로 센다.
+    for i in range(count_linear_scales(input_raw.shape[1])):
+        pool_size = (i + 1) * 2
+        avg_layer = keras.layers.AveragePooling1D(pool_size=pool_size, strides=pool_size, padding='valid')(input_raw)
         multi_scale_input_list.append(avg_layer)
 
     seasonal_list = []

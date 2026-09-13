@@ -209,9 +209,21 @@ class DecompositionLayer(keras.layers.Layer):
 
 @keras.saving.register_keras_serializable()
 class FeatureWiseScalingLayer(keras.layers.Layer):
+    """
+    특징(feature)마다 학습되는 스케일 값을 곱해 주는 레이어입니다.
+
+    스케일 벡터를 그대로 곱합니다. 이전에는 gelu 를 거친 값을 곱했는데,
+    gelu 의 최솟값이 -0.17 이라 스케일이 그 아래로 내려갈 수 없었습니다.
+    즉 특징의 부호를 뒤집거나 크게 음수로 만드는 것이 불가능했고,
+    스케일 값이 음수로 많이 밀리면 gelu 의 기울기가 0 에 가까워져
+    한 번 죽은 특징이 되살아나지 못했습니다.
+
+    이제 스케일은 실수 전체 범위를 자유롭게 쓸 수 있고,
+    initializer='ones' 이므로 학습 시작 시점의 스케일은 정확히 1.0 입니다.
+    (gelu 를 거치던 때에는 gelu(1)=0.841 이 초기 스케일이었습니다.)
+    """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.activation = keras.layers.Activation('gelu')
         self.scaling_vector = None
 
     def build(self, input_shape):
@@ -220,10 +232,7 @@ class FeatureWiseScalingLayer(keras.layers.Layer):
         super().build(input_shape)
 
     def call(self, inputs):
-        y = self.activation(self.scaling_vector)
-        y = inputs * y
-
-        return y
+        return inputs * self.scaling_vector
 
     def compute_output_shape(self, input_shape):
         return input_shape

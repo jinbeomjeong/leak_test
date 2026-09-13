@@ -13,10 +13,16 @@ def build_reg_model(input_shape, d_dims=64, dropout_rate=0.2, learning_rate=0.00
     x_res = keras.layers.Dense(units=d_dims, activation='linear')(input_layer)
 
     for i in range(3):
-        x = keras.layers.Conv1D(filters=d_dims, kernel_size=3, activation=gelu_approximate, padding='causal')(x_res)
+        # conv → norm → activation 순서.
+        # 기존에는 Conv1D(activation=...) 로 활성화를 먼저 걸고 LayerNormalization 을 뒤에 두어
+        # 정규화가 활성화 결과를 다시 중심 이동시키고 있었다.
+        x = keras.layers.Conv1D(filters=d_dims, kernel_size=3, padding='causal')(x_res)
+        x = keras.layers.LayerNormalization()(x)
+        x = keras.layers.Activation(gelu_approximate)(x)
         x = keras.layers.Dropout(dropout_rate)(x)
 
-        x = keras.layers.Conv1D(filters=d_dims, kernel_size=3, activation=gelu_approximate, padding='causal')(x)
+        # 두 번째 conv 의 활성화는 잔차 덧셈 뒤에 온다 (ResNet 의 conv→norm→add→activation 형태).
+        x = keras.layers.Conv1D(filters=d_dims, kernel_size=3, padding='causal')(x)
         x = keras.layers.LayerNormalization()(x)
         x_res = keras.layers.Activation(gelu_approximate)(x+x_res)
 

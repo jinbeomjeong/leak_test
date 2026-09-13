@@ -4,27 +4,32 @@ os.environ["KERAS_BACKEND"] = "jax"
 import keras
 
 
-def count_divisions_by_two(num):
+def count_linear_scales(seq_len, step=2, min_pooled_len=8):
     """
-    주어진 숫자가 2 이하가 될 때까지 2로 나눈 횟수를 계산합니다.
+    time_mixer_block 이 만들 멀티스케일 다운샘플링 단계의 개수를 셉니다.
 
-    time_mixer_block 에서 시계열을 몇 단계까지 축소(multi-scale)할 수 있는지 정하는 데 사용합니다.
+    pool_size 를 step, 2*step, 3*step ... 처럼 선형으로 키워가며,
+    풀링 후 길이가 min_pooled_len 이상 남는 동안만 스케일을 추가합니다.
+
+    기존에는 개수를 log2 기반(count_divisions_by_two)으로 세면서 실제 pool_size 는
+    선형으로 키워 두 규칙이 서로 맞지 않았습니다. 여기서는 둘 다 선형으로 통일합니다.
 
     Args:
-        num (float or int): 나눌 대상 숫자.
+        seq_len (int): 원본 시퀀스 길이.
+        step (int): pool_size 증가 폭. pool_size 는 step, 2*step, 3*step ... 순서.
+        min_pooled_len (int): 풀링 후 남아야 하는 최소 길이.
+            DecompositionLayer 의 이동평균(kernel_size=3)이 의미를 가지려면
+            어느 정도 길이가 남아 있어야 하므로 하한을 둡니다.
 
     Returns:
-        int: 2로 나눈 횟수. 입력이 이미 2 이하이면 0.
+        int: 추가할 스케일의 개수. 길이가 짧아 축소할 수 없으면 0.
     """
-    if num <= 2:
-        return 0  # 입력값이 이미 2 이하이면 더 나눌 수 없음
+    count = 0
+    pool_size = step
 
-    count = 0  # 나눈 횟수를 저장할 변수
-
-    # 숫자가 2보다 큰 동안 계속 반복
-    while num > 2:
-        num /= 2  # 숫자를 2로 나눔
-        count += 1  # 횟수 1 증가
+    while seq_len // pool_size >= min_pooled_len:
+        count += 1
+        pool_size += step
 
     return count
 
